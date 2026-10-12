@@ -1,66 +1,66 @@
-# 1C-PostgreSQL-LLM Gate Pattern
+# Архитектурный паттерн: Шлюз 1C-PostgreSQL-LLM
 
-Production architectural pattern for integrating **1C:Enterprise (1С:Предприятие / ERP / КА / УТ)** with external LLM reasoning engines and operational workflows (Telegram, CRM).
+Промышленный архитектурный паттерн интеграции **1С:Предприятия (1С:Предприятие / ERP / КА / УТ)** с внешними аналитическими движками на базе больших языковых моделей (LLM) и оперативными рабочими процессами (Telegram, CRM).
 
 ---
 
-## 1. High-Level Architecture
+## 1. Архитектура решения
 
 ```mermaid
 flowchart TD
-    subgraph Accounting_Core["1C:Enterprise (OLTP Core)"]
-        A1[1C Database] -->|Scheduled JSON Export| A2[Staging Sync Service]
+    subgraph Accounting_Core["1С:Предприятие (Учетное ядро)"]
+        A1["База данных 1С"] -->|Выгрузка JSON по расписанию| A2["Служба синхронизации"]
     end
 
-    subgraph Data_Layer["Decoupled Data Hub"]
-        A2 -->|Upsert Snapshot| B1[(PostgreSQL Staging DB)]
-        MP[Marketplace APIs<br/>WB / Ozon] -->|Webhooks / Polling| B1
+    subgraph Data_Layer["Буферный шлюз данных (PostgreSQL)"]
+        A2 -->|Upsert среза данных| B1[("Буферная БД PostgreSQL")]
+        MP["API маркетплейсов<br/>WB / Ozon"] -->|Вебхуки / Опрос API| B1
     end
 
-    subgraph Analytics_Engine["Deterministic Compute Engine"]
-        B1 --> C1[Python FastAPI Worker]
-        C1 -->|Calculate Unit-Economics & Runout Dates| C2{Variance / Margin Drop?}
+    subgraph Analytics_Engine["Детерминированный расчетный модуль"]
+        B1 --> C1["Воркер Python FastAPI"]
+        C1 -->|Анализ юнит-экономики и сроков выбытия| C2{"Просадка маржи / аномалия?"}
     end
 
-    subgraph AI_Reasoning["LLM Orchestration Layer"]
-        C2 -->|Threshold Breached<br/>Structured JSON Payload| D1[Prompt & Context Assembler]
-        D1 --> D2[LLM / Qwen 2.5 / OpenAI]
-        D2 -->|Root-Cause Summary + Draft Action| D3[Structured Action Proposal]
+    subgraph AI_Reasoning["Слой ИИ-оркестрации (LLM)"]
+        C2 -->|Выход за порог<br/>Структурированный JSON| D1["Сборщик контекста и промпта"]
+        D1 --> D2["LLM / Qwen 2.5 / OpenAI"]
+        D2 -->|Формирование фактора и проекта действий| D3["Проект управляющего воздействия"]
     end
 
-    subgraph Human_Gate["Human-in-the-Loop (HITL) Gate"]
-        D3 --> E1{Severity Level}
-        E1 -->|P1 / Financial Impact| E2[Telegram Executive Bot<br/>One-Click Approval]
-        E1 -->|Operational Task| E3[CRM / Bitrix24 Task Queue]
+    subgraph Human_Gate["Шлюз согласования человеком (HITL)"]
+        D3 --> E1{"Уровень критичности"}
+        E1 -->|P1 / Финансовое влияние| E2["Telegram-бот директора<br/>(Согласование в 1 клик)"]
+        E1 -->|Операционная задача| E3["Задачи в Битрикс24"]
     end
 
-    subgraph Execution_Loop["Execution & Closed Loop"]
-        E2 -->|Approved| F1[Marketplace Repricing API / 1C Staging Order]
-        F1 --> F2[Verification Worker<br/>48h Closed-Loop Check]
-        F2 -.->|Confirmed Margin Recovery| E2
+    subgraph Execution_Loop["Контур исполнения и проверки (Closed-Loop)"]
+        E2 -->|Согласовано| F1["Обновление цены по API / Буферный заказ 1C"]
+        F1 --> F2["Воркер верификации<br/>(Проверка восстановления маржи через 48 часов)"]
+        F2 -.->|Подтверждено восстановление маржи| E2
     end
 ```
 
 ---
 
-## 2. Core Architectural Principles
+## 2. Ключевые архитектурные принципы
 
-### 1. Isolated Staging (Protecting 1C Core)
-- **Problem:** Running analytical joins, vector searches, or frequent API polling on a live 1C Microsoft SQL/Postgres cluster risks table locks, schema cache invalidations, and license violations.
-- **Solution:** 1C publishes lightweight daily or hourly incremental JSON snapshots (SKU balances, cost-of-goods, reserved quantities) via HTTP/REST into an external **PostgreSQL Staging DB**.
-- The analytics and LLM layer **never connects directly to the 1C primary cluster**.
+### 1. Изолированный буфер (Защита контура 1С)
+- **Проблема:** Выполнение тяжелых аналитических джойнов (JOIN), векторного поиска или частого опроса API напрямую к боевому кластеру 1С (MS SQL / PostgreSQL) создает риски блокировки таблиц, сброса кэша метаданных и превышения лицензионных лимитов. Боевую 1С нельзя перегружать аналитикой.
+- **Решение:** 1С выгружает легковесные ежедневные или почасовые инкрементальные срезы в формате JSON (остатки по SKU, себестоимость, зарезервированные партии) через HTTP/REST во внешнюю **буферную БД (PostgreSQL Staging DB)**.
+- Аналитический модуль и слой LLM **никогда не подключаются напрямую к основному кластеру 1С**.
 
-### 2. Deterministic Math Guardrail (No LLM Hallucinations on Numbers)
-- **Rule:** Large Language Models are strictly prohibited from performing arithmetic calculations (e.g., unit margin, commission tiers, runout velocity).
-- **Implementation:**
-  - Python / SQL code computes precise numbers (e.g. `Margin = 4.1%`, `Loss = 142,000 RUB`, `Days_to_OOS = 6.2`).
-  - The LLM receives pre-calculated metrics and serves solely as a **Root-Cause Reasoner and Executive Synthesizer**: explaining *why* the variance occurred and drafting actionable next steps.
+### 2. Детерминированные математические ограничения (Guardrails: расчеты вне LLM)
+- **Правило:** Большим языковым моделям категорически запрещено производить математические и финансовые расчеты (юнит-маржа, тарифные сетки комиссий, скорость выбытия остатков).
+- **Реализация:**
+  - Детерминированный программный код на Python / SQL рассчитывает точные цифры (например, `Маржа = 4.1%`, `Убыток = 142 000 руб.`, `Дней до OOS = 6.2`).
+  - LLM получает уже готовые, верифицированные метрики и выступает исключительно в роли **инструмента факторного анализа первопричин и синтеза управленческих решений**: объясняет, *почему* возникла аномалия или отклонение, и формирует структурированный проект действий для бизнеса.
 
-### 3. Human-in-the-Loop (HITL) Guardrail
-- Automated price changes and purchase orders are routed through an approval gate:
-  - **C-Level Telegram Bot:** One-Click `[Approve]` / `[Reject]` for critical financial threshold changes.
-  - **CRM Tasks (Bitrix24):** Structured task cards with checklists for operational personnel (e.g. warehouse audits, logistics rerouting).
+### 3. Шлюз участия человека (Human-in-the-Loop / HITL)
+- Автоматические изменения цен и заказы поставщикам в обязательном порядке маршрутизируются через шлюз согласования:
+  - **Telegram-бот для руководства (C-Level):** Согласование в 1 клик (`[Одобрить]` / `[Отклонить]`) при преодолении критических финансовых порогов (P1).
+  - **Задачи в CRM (Битрикс24):** Структурированные карточки задач с чек-листами для операционистов (инвентаризация на складе, перенаправление поставок, проверка условий хранения).
 
-### 4. Closed-Loop Verification (48h Check)
-- Any executed action schedules an automated verification job.
-- After 48 hours, the worker verifies that the market price is updated, stock velocity is stabilized, and margin has returned above the target threshold.
+### 4. Закрытый цикл верификации (Closed-Loop контроль через 48 часов)
+- Любое выполненное управляющее воздействие автоматически планирует отложенную задачу на проверку.
+- Через 48 часов фоновый воркер проверяет фактическое устранение аномалии: обновилась ли цена на витрине маркетплейса, нормализовалась ли динамика продаж и вернулась ли маржинальность выше целевого порога.

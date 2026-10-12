@@ -1,13 +1,14 @@
-# Enterprise AI Architecture Patterns
+# Архитектурные паттерны корпоративного ИИ (Enterprise AI)
 
-A curated collection of production-grade architectural patterns for integrating Large Language Models (LLMs) with enterprise ERP systems (1C:Enterprise, SAP), relational databases, and multi-channel e-commerce operations.
+Коллекция проверенных практикой архитектурных паттернов для интеграции больших языковых моделей (LLM) с корпоративными ERP-системами (1С:Предприятие, SAP), реляционными базами данных и мультиканальной e-commerce торговлей (маркетплейсы).
 
-## Architecture Patterns
+## Архитектурные паттерны
 
-- [1C-PostgreSQL-LLM Gate (Inventory & Margin Ops Pipeline)](docs/1c-llm-pipeline.md) — Reliable decoupled architecture for connecting legacy 1C ERP accounting databases with external LLM reasoning engines without transactional locks or hallucinations.
+- [Шлюз 1C-PostgreSQL-LLM (Контур управления складскими остатками и маржинальностью)](docs/1c-llm-pipeline.md) — Надежная слабосвязанная (decoupled) архитектура для подключения учетных баз 1С к внешним аналитическим движкам на базе LLM без транзакционных блокировок и галлюцинаций.
 
-## Key Principles
+## Ключевые принципы
 
-1. **Decoupled Staging:** Never run analytical or vector queries against the primary OLTP accounting database.
-2. **Deterministic Math Guardrails:** LLMs never calculate financial metrics, margins, or inventory thresholds. Math is strictly executed by Python/SQL engines; LLMs interpret variances and formulate business actions.
-3. **Human-in-the-Loop (HITL):** Automated actions require explicit approval for P1/financial changes via Telegram or CRM webhooks.
+1. **Изолированный буфер (Decoupled Staging):** Аналитические и векторные запросы никогда не выполняются напрямую к первичной OLTP-базе учетной системы 1С.
+2. **Детерминированные математические ограничения (Math Guardrails):** Моделям LLM категорически запрещено производить финансовые расчеты, вычислять маржу и пороговые значения остатков. Математика строго реализуется расчетными модулями на Python/SQL; LLM выполняет факторный анализ причин и формулирует управленческие решения.
+3. **Шлюз участия человека (Human-in-the-Loop / HITL):** Автоматические действия требуют обязательного подтверждения человеком при критических (P1) или финансовых изменениях через Telegram-бота руководителя или задачи в CRM.
+4. **Закрытый контур верификации (Closed-Loop):** Автоматический контроль фактического устранения аномалий и восстановления маржи через 48 часов после применения изменений.
